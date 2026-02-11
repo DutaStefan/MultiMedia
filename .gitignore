@@ -1,0 +1,17 @@
+# Visual Studio & Temporary Files
+.vs/
+.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+
+# Unreal Engine Build Files
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+Build/
+
+# Local Configs
+Config/User/
