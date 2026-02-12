@@ -4,9 +4,8 @@
 #include "Blueprint/UserWidget.h"
 #include "ClueItemWidget.generated.h"
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnClueSelected, bool, bIsSelected);
-
-class UButton;
+// Delegate declared BEFORE the class
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnClueSelected, int32, SelectedIndex, bool, bInTurnOn);
 
 UCLASS()
 class MULTIMEDIA_API UClueItemWidget : public UUserWidget
@@ -14,20 +13,23 @@ class MULTIMEDIA_API UClueItemWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clue Config")
-	FText ClueName;
-
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FOnClueSelected OnClueSelected;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config")
+	int32 ClueIndex;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	class USoundBase* ClickSound;
+
 protected:
 	UPROPERTY(meta = (BindWidget))
-	UButton* HitButton;
+	class UButton* HitButton;
 
-	bool bIsSelected = false;
+	// This stores the current state to send to the label
+	bool bIsActive = false;
 
 	virtual void NativeConstruct() override;
-	virtual void NativePreConstruct() override;
 
 	UFUNCTION()
 	void OnClueClicked();

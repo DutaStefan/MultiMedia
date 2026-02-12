@@ -21,6 +21,7 @@ void UClueLabelWidget::UpdateState(int32 ReceivedIndex, bool bInTurnOn)
 {
 	if (ReceivedIndex == ClueIndex)
 	{
+		// This triggers the red event node in your Blueprint
 		OnVisualStateChanged(bInTurnOn);
 	}
 }

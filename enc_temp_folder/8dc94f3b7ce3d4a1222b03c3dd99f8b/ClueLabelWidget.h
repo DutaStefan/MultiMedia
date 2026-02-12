@@ -20,6 +20,7 @@ public:
 	UFUNCTION()
 	void UpdateState(int32 ReceivedIndex, bool bInTurnOn);
 
+	// This is your bInTurnOn logic for the blueprint
 	UFUNCTION(BlueprintImplementableEvent, Category = "Clue Logic")
 	void OnVisualStateChanged(bool bInTurnOn);
 

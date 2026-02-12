@@ -13,9 +13,8 @@ void UClueItemWidget::NativeConstruct()
 
 void UClueItemWidget::OnClueClicked()
 {
+	// Logic: Flip the local state, then tell the label exactly what that state is
 	bIsActive = !bIsActive;
-
-	UE_LOG(LogTemp, Warning, TEXT("The button has been clicked"));
 
 	OnClueSelected.Broadcast(ClueIndex, bIsActive);
 
