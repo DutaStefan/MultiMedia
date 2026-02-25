@@ -5,6 +5,8 @@
 #include "ClueBookWidget.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include <Kismet/KismetMathLibrary.h>
+#include <Kismet/GameplayStatics.h>
 
 ADetective::ADetective()
 {
@@ -27,44 +29,104 @@ void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (bIsDoingIntro && IntroCamera)
+	for (FName Tag : TargetNPCTags)
 	{
-		IntroCamera->SetRelativeLocation(IntroStartOffset);
+		TArray<AActor*> OutActors;
+		UGameplayStatics::GetAllActorsWithTag(GetWorld(), Tag, OutActors);
 
-		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		if (OutActors.Num() > 0)
 		{
-			PC->SetIgnoreMoveInput(true);
+			FoundNPCs.Add(OutActors[0]); // Add the first actor found with that tag
 		}
 	}
+
+	if (IntroCamera)
+	{
+		IntroCamera->SetRelativeLocation(IntroStartOffset);
+		IntroCamera->bUsePawnControlRotation = false; // We control rotation manually now
+	}
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		PC->SetIgnoreMoveInput(true);
 }
 
 void ADetective::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (bIsDoingIntro && IntroCamera && FPSCamera)
+	if (!bIsDoingIntro || !IntroCamera || !FPSCamera) return;
+
+	StateTimer += DeltaTime;
+
+	FVector TargetLocation;
+	FRotator TargetRotation;
+
+	if (CurrentTargetIndex == -1)
 	{
-		IntroTimer += DeltaTime;
+		// STAGE 1: Zooming into Detective
+		TargetLocation = FPSCamera->GetComponentLocation();
+		TargetRotation = FPSCamera->GetComponentRotation();
 
-		FVector CurrentLoc = IntroCamera->GetRelativeLocation();
-		FVector TargetLoc = FPSCamera->GetRelativeLocation();
-
-		// Smoothly move using the editable InterpSpeed
-		FVector NewLoc = FMath::VInterpTo(CurrentLoc, TargetLoc, DeltaTime, InterpSpeed);
-		IntroCamera->SetRelativeLocation(NewLoc);
-
-		// Stop intro when close or time expires
-		if (FVector::Dist(NewLoc, TargetLoc) < 5.0f || IntroTimer >= IntroDuration)
+		if (StateTimer >= 3.0f) // Initial zoom duration
 		{
-			IntroCamera->SetActive(false);
-			FPSCamera->SetActive(true);
-			bIsDoingIntro = false;
-
-			if (APlayerController* PC = Cast<APlayerController>(GetController()))
-			{
-				PC->SetIgnoreMoveInput(false);
-			}
+			CurrentTargetIndex = 0;
+			StateTimer = 0.0f;
 		}
+	}
+	else if (FoundNPCs.IsValidIndex(CurrentTargetIndex))
+	{
+		AActor* CurrentNPC = FoundNPCs[CurrentTargetIndex];
+		if (CurrentNPC)
+		{
+			// We get the Actor's eyes/head height dynamically
+			float HalfHeight = CurrentNPC->GetSimpleCollisionHalfHeight();
+			FVector HeadLevelOffset = FVector(0, 0, HalfHeight * 0.8f);
+
+			// Position camera 120 units in front of the NPC's face
+			FVector NPCLocation = CurrentNPC->GetActorLocation();
+			FVector Forward = CurrentNPC->GetActorForwardVector();
+
+			TargetLocation = NPCLocation + (Forward * 120.0f) + HeadLevelOffset;
+
+			// Make the camera look directly at the head level
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(TargetLocation, NPCLocation + HeadLevelOffset);
+		}
+
+		if (StateTimer >= TimePerCharacter)
+		{
+			CurrentTargetIndex++;
+			StateTimer = 0.0f;
+		}
+	}
+	else
+	{
+		// STAGE 3: Return to Detective and Finish
+		TargetLocation = FPSCamera->GetComponentLocation();
+		TargetRotation = FPSCamera->GetComponentRotation();
+
+		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 10.0f)
+		{
+			FinishIntro();
+		}
+	}
+
+	// Smooth Movement and Rotation
+	FVector NewLoc = FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, TravelSpeed);
+	FRotator NewRot = FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, TravelSpeed);
+
+	IntroCamera->SetWorldLocationAndRotation(NewLoc, NewRot);
+}
+
+void ADetective::FinishIntro()
+{
+	IntroCamera->SetActive(false);
+	FPSCamera->SetActive(true);
+	bIsDoingIntro = false;
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetIgnoreMoveInput(false);
+		PC->SetControlRotation(FPSCamera->GetComponentRotation());
 	}
 }
 

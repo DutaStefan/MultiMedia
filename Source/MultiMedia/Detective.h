@@ -27,15 +27,28 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	UCameraComponent* IntroCamera;
 
-	// --- EDITABLE INTRO SETTINGS ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
-	float IntroDuration = 4.0f;
+	// ---CINEMATIC CONTROLS ---
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	TArray<FName> TargetNPCTags;
+
+	UPROPERTY()
+	TArray<AActor*> FoundNPCs;
+
+	/** How long the camera stays on each NPC */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	float TimePerCharacter = 2.5f;
+
+	/** How fast the camera travels between people */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	float TravelSpeed = 2.0f;
+
+	/** If true, NPCs will try to rotate their heads toward the camera during their zoom */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	bool bNPCsShouldFaceCamera = true;
+
+	UPROPERTY(EditAnywhere, Category = "Camera Intro")
 	FVector IntroStartOffset = FVector(-400.f, 0.f, 150.f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
-	float InterpSpeed = 1.2f;
 
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> ClueBookWidgetClass;
@@ -47,9 +60,11 @@ protected:
 	UClueBookWidget* ClueBookInstance;
 
 	bool bIsDoingIntro = true;
-	float IntroTimer = 0.0f;
+	int32 CurrentTargetIndex = -1; // -1 is the initial Detective zoom
+	float StateTimer = 0.0f;
 
 	void ToggleBook();
+	void FinishIntro();
 
 public:
 	virtual void Tick(float DeltaTime) override;
