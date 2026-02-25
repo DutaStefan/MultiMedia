@@ -12,14 +12,6 @@ ADetective::ADetective()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	// 1. Internal FPS Camera
-	FPSCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FPSCamera"));
-	FPSCamera->SetupAttachment(RootComponent);
-	FPSCamera->SetRelativeLocation(FVector(0.f, 0.f, 75.f));
-	FPSCamera->bUsePawnControlRotation = true;
-	FPSCamera->SetAutoActivate(false);
-
-	// 2. Intro Camera
 	IntroCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("IntroCamera"));
 	IntroCamera->SetupAttachment(RootComponent);
 	IntroCamera->SetAutoActivate(true);
@@ -29,104 +21,134 @@ void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ActiveGameplayCamera = FindComponentByClass<UCameraComponent>();
+
+	TArray<UCameraComponent*> Components;
+	GetComponents<UCameraComponent>(Components);
+	for (UCameraComponent* Cam : Components)
+	{
+		if (Cam != IntroCamera)
+		{
+			ActiveGameplayCamera = Cam;
+			break;
+		}
+	}
+
+	if (ActiveGameplayCamera)
+	{
+		ActiveGameplayCamera->SetActive(false);
+	}
+
+	CurrentState = ECinematicState::DetectiveZoom;
+	CurrentTargetIndex = -1;
+	StateTimer = 0.0f;
+	FoundNPCs.Empty();
+
 	for (FName Tag : TargetNPCTags)
 	{
 		TArray<AActor*> OutActors;
 		UGameplayStatics::GetAllActorsWithTag(GetWorld(), Tag, OutActors);
-
-		if (OutActors.Num() > 0)
-		{
-			FoundNPCs.Add(OutActors[0]); // Add the first actor found with that tag
-		}
+		if (OutActors.Num() > 0) FoundNPCs.Add(OutActors[0]);
 	}
 
 	if (IntroCamera)
 	{
 		IntroCamera->SetRelativeLocation(IntroStartOffset);
-		IntroCamera->bUsePawnControlRotation = false; // We control rotation manually now
+		IntroCamera->bUsePawnControlRotation = false;
 	}
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
 		PC->SetIgnoreMoveInput(true);
+		PC->SetIgnoreLookInput(true); // Stop mouse during intro
+	}
 }
 
 void ADetective::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (!bIsDoingIntro || !IntroCamera || !FPSCamera) return;
+	if (CurrentState == ECinematicState::Finished) return;
 
 	StateTimer += DeltaTime;
+	FVector TargetLocation = FVector::ZeroVector;
+	FRotator TargetRotation = FRotator::ZeroRotator;
 
-	FVector TargetLocation;
-	FRotator TargetRotation;
-
-	if (CurrentTargetIndex == -1)
+	if (ActiveGameplayCamera)
 	{
-		// STAGE 1: Zooming into Detective
-		TargetLocation = FPSCamera->GetComponentLocation();
-		TargetRotation = FPSCamera->GetComponentRotation();
+		TargetLocation = ActiveGameplayCamera->GetComponentLocation();
+		TargetRotation = ActiveGameplayCamera->GetComponentRotation();
+	}
 
-		if (StateTimer >= 3.0f) // Initial zoom duration
+	switch (CurrentState)
+	{
+	case ECinematicState::DetectiveZoom:
+		if (StateTimer >= IntroDuration)
 		{
 			CurrentTargetIndex = 0;
 			StateTimer = 0.0f;
+			CurrentState = (FoundNPCs.Num() > 0) ? ECinematicState::NPCZoom : ECinematicState::ReturningHome;
 		}
-	}
-	else if (FoundNPCs.IsValidIndex(CurrentTargetIndex))
-	{
-		AActor* CurrentNPC = FoundNPCs[CurrentTargetIndex];
-		if (CurrentNPC)
+		break;
+
+	case ECinematicState::NPCZoom:
+		if (FoundNPCs.IsValidIndex(CurrentTargetIndex))
 		{
-			// We get the Actor's eyes/head height dynamically
-			float HalfHeight = CurrentNPC->GetSimpleCollisionHalfHeight();
-			FVector HeadLevelOffset = FVector(0, 0, HalfHeight * 0.8f);
+			AActor* NPC = FoundNPCs[CurrentTargetIndex];
+			FVector EyesLocation = NPC->GetActorLocation() + FVector(0, 0, 65.f);
 
-			// Position camera 120 units in front of the NPC's face
-			FVector NPCLocation = CurrentNPC->GetActorLocation();
-			FVector Forward = CurrentNPC->GetActorForwardVector();
+			if (USkeletalMeshComponent* NPCMesh = NPC->FindComponentByClass<USkeletalMeshComponent>())
+			{
+				if (NPCMesh->DoesSocketExist(TEXT("head")))
+					EyesLocation = NPCMesh->GetSocketLocation(TEXT("head"));
+			}
 
-			TargetLocation = NPCLocation + (Forward * 120.0f) + HeadLevelOffset;
+			TargetLocation = EyesLocation + (NPC->GetActorForwardVector() * 150.f);
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(TargetLocation, EyesLocation);
 
-			// Make the camera look directly at the head level
-			TargetRotation = UKismetMathLibrary::FindLookAtRotation(TargetLocation, NPCLocation + HeadLevelOffset);
+			if (StateTimer >= TimePerCharacter)
+			{
+				CurrentTargetIndex++;
+				StateTimer = 0.0f;
+				if (!FoundNPCs.IsValidIndex(CurrentTargetIndex)) CurrentState = ECinematicState::ReturningHome;
+			}
 		}
+		break;
 
-		if (StateTimer >= TimePerCharacter)
-		{
-			CurrentTargetIndex++;
-			StateTimer = 0.0f;
-		}
-	}
-	else
-	{
-		// STAGE 3: Return to Detective and Finish
-		TargetLocation = FPSCamera->GetComponentLocation();
-		TargetRotation = FPSCamera->GetComponentRotation();
-
-		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 10.0f)
+	case ECinematicState::ReturningHome:
+		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 10.0f || StateTimer > 5.0f)
 		{
 			FinishIntro();
+			return;
 		}
+		break;
+
+	default:
+		break;
 	}
 
-	// Smooth Movement and Rotation
-	FVector NewLoc = FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, TravelSpeed);
-	FRotator NewRot = FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, TravelSpeed);
-
+	FVector NewLoc = FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, InterpSpeed);
+	FRotator NewRot = FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, InterpSpeed);
 	IntroCamera->SetWorldLocationAndRotation(NewLoc, NewRot);
 }
 
 void ADetective::FinishIntro()
 {
-	IntroCamera->SetActive(false);
-	FPSCamera->SetActive(true);
-	bIsDoingIntro = false;
+	CurrentState = ECinematicState::Finished;
+
+	if (IntroCamera) IntroCamera->SetActive(false);
+
+	if (ActiveGameplayCamera)
+	{
+		ActiveGameplayCamera->SetActive(true);
+		ActiveGameplayCamera->bUsePawnControlRotation = true;
+	}
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->SetIgnoreMoveInput(false);
-		PC->SetControlRotation(FPSCamera->GetComponentRotation());
+		PC->SetIgnoreLookInput(false);
+		PC->SetControlRotation(ActiveGameplayCamera->GetComponentRotation());
 	}
 }
 
@@ -135,10 +157,8 @@ void ADetective::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// This connects the "ToggleBookAction" variable to the "ToggleBook" function
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		// Make sure ToggleBookAction is selected in the Blueprint, otherwise this crashes!
 		if (ToggleBookAction)
 		{
 			EnhancedInputComponent->BindAction(ToggleBookAction, ETriggerEvent::Started, this, &ADetective::ToggleBook);
@@ -185,8 +205,7 @@ void ADetective::ToggleBook()
 			{
 				PC->bShowMouseCursor = true;
 
-				// This allows both UI clicks and Game movement (optional)
-				// Use FInputModeUIOnly() if you want the player to stop moving while reading.
+
 				PC->SetInputMode(FInputModeGameAndUI());
 			}
 		}

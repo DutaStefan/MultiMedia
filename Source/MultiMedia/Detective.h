@@ -8,6 +8,15 @@ class UCameraComponent;
 class UInputAction;
 class UClueBookWidget;
 
+UENUM(BlueprintType)
+enum class ECinematicState : uint8
+{
+	DetectiveZoom,
+	NPCZoom,
+	ReturningHome,
+	Finished
+};
+
 UCLASS()
 class MULTIMEDIA_API ADetective : public ACharacter
 {
@@ -19,16 +28,13 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** The internal gameplay camera - Hidden from defaults to avoid conflicts */
-	UPROPERTY()
-	UCameraComponent* FPSCamera;
-
+	UPROPERTY(BlueprintReadOnly, Category = "Camera")
+	UCameraComponent* ActiveGameplayCamera;
 	/** The cinematic intro camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	UCameraComponent* IntroCamera;
 
 	// ---CINEMATIC CONTROLS ---
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
 	TArray<FName> TargetNPCTags;
 
@@ -47,8 +53,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
 	bool bNPCsShouldFaceCamera = true;
 
-	UPROPERTY(EditAnywhere, Category = "Camera Intro")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	float IntroDuration = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
 	FVector IntroStartOffset = FVector(-400.f, 0.f, 150.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	float InterpSpeed = 1.5f;
 
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> ClueBookWidgetClass;
@@ -60,13 +72,16 @@ protected:
 	UClueBookWidget* ClueBookInstance;
 
 	bool bIsDoingIntro = true;
-	int32 CurrentTargetIndex = -1; // -1 is the initial Detective zoom
-	float StateTimer = 0.0f;
-
 	void ToggleBook();
 	void FinishIntro();
+
+private:
+	ECinematicState CurrentState = ECinematicState::DetectiveZoom;
+	int32 CurrentTargetIndex = -1;
+	float StateTimer = 0.0f;
 
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
 };
