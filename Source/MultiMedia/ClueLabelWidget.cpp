@@ -4,17 +4,23 @@
 void UClueLabelWidget::NativePreConstruct()
 {
 	Super::NativePreConstruct();
-
-	if (ClueText)
+	if (ClueText && ClueDataTable)
 	{
-		if (!ClueName.IsEmpty())
-		{
-			ClueText->SetText(ClueName);
+		FName RowName = FName(*FString::FromInt(ClueIndex));
+		FClueInfo* Data = ClueDataTable->FindRow<FClueInfo>(RowName, TEXT("LabelLookup"));
+		if (Data) {
+			ClueText->SetText(Data->ClueDisplayName);
 		}
-		else
-		{
-			// Fallback text so it's not invisible
-			ClueText->SetText(FText::FromString("New Clue"));
+		else {
+			ClueText->SetText(FText::AsNumber(ClueIndex));
 		}
+	}
+}
+
+void UClueLabelWidget::UpdateState(int32 ReceivedIndex, bool bInTurnOn)
+{
+	if (ReceivedIndex == ClueIndex)
+	{
+		OnVisualStateChanged(bInTurnOn);
 	}
 }

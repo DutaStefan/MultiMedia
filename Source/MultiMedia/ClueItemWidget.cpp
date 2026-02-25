@@ -1,39 +1,26 @@
 #include "ClueItemWidget.h"
 #include "Components/Button.h"
-
-void UClueItemWidget::NativePreConstruct()
-{
-	Super::NativePreConstruct();
-
-	// Default color Red
-	if (HitButton)
-	{
-		HitButton->SetBackgroundColor(FLinearColor::Red);
-	}
-}
+#include "Kismet/GameplayStatics.h"
 
 void UClueItemWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
 	if (HitButton)
 	{
-		HitButton->OnClicked.AddDynamic(this, &UClueItemWidget::OnClueClicked);
+		HitButton->OnClicked.AddUniqueDynamic(this, &UClueItemWidget::OnClueClicked);
 	}
 }
 
 void UClueItemWidget::OnClueClicked()
 {
-	bIsSelected = !bIsSelected;
+	bIsActive = !bIsActive;
 
-	if (HitButton)
-	{
-		FLinearColor NewColor = bIsSelected ? FLinearColor::Green : FLinearColor::Red;
-		HitButton->SetBackgroundColor(NewColor);
-	}
+	UE_LOG(LogTemp, Warning, TEXT("The button has been clicked"));
 
-	if (OnClueSelected.IsBound())
+	OnClueSelected.Broadcast(ClueIndex, bIsActive);
+
+	if (ClickSound)
 	{
-		OnClueSelected.Broadcast(bIsSelected);
+		UGameplayStatics::PlaySound2D(this, ClickSound);
 	}
 }
