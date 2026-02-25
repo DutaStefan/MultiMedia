@@ -1,37 +1,71 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Detective.h"
+#include "Camera/CameraComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "Blueprint/UserWidget.h"
 #include "ClueBookWidget.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "Blueprint/UserWidget.h"
 
-
-// Sets default values
 ADetective::ADetective()
 {
-	// Set this character to call Tick() every frame.
 	PrimaryActorTick.bCanEverTick = true;
+
+	// 1. Internal FPS Camera
+	FPSCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FPSCamera"));
+	FPSCamera->SetupAttachment(RootComponent);
+	FPSCamera->SetRelativeLocation(FVector(0.f, 0.f, 75.f));
+	FPSCamera->bUsePawnControlRotation = true;
+	FPSCamera->SetAutoActivate(false);
+
+	// 2. Intro Camera
+	IntroCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("IntroCamera"));
+	IntroCamera->SetupAttachment(RootComponent);
+	IntroCamera->SetAutoActivate(true);
 }
 
-// Called when the game starts or when spawned
 void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
+	if (bIsDoingIntro && IntroCamera)
 	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		IntroCamera->SetRelativeLocation(IntroStartOffset);
+
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
 		{
+			PC->SetIgnoreMoveInput(true);
 		}
 	}
 }
 
-// Called every frame
 void ADetective::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	if (bIsDoingIntro && IntroCamera && FPSCamera)
+	{
+		IntroTimer += DeltaTime;
+
+		FVector CurrentLoc = IntroCamera->GetRelativeLocation();
+		FVector TargetLoc = FPSCamera->GetRelativeLocation();
+
+		// Smoothly move using the editable InterpSpeed
+		FVector NewLoc = FMath::VInterpTo(CurrentLoc, TargetLoc, DeltaTime, InterpSpeed);
+		IntroCamera->SetRelativeLocation(NewLoc);
+
+		// Stop intro when close or time expires
+		if (FVector::Dist(NewLoc, TargetLoc) < 5.0f || IntroTimer >= IntroDuration)
+		{
+			IntroCamera->SetActive(false);
+			FPSCamera->SetActive(true);
+			bIsDoingIntro = false;
+
+			if (APlayerController* PC = Cast<APlayerController>(GetController()))
+			{
+				PC->SetIgnoreMoveInput(false);
+			}
+		}
+	}
 }
 
 // Called to bind functionality to input

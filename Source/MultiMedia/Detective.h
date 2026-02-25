@@ -1,14 +1,11 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "InputActionValue.h" 
 #include "Detective.generated.h"
 
+class UCameraComponent;
 class UInputAction;
-class UInputMappingContext;
 class UClueBookWidget;
 
 UCLASS()
@@ -17,30 +14,44 @@ class MULTIMEDIA_API ADetective : public ACharacter
 	GENERATED_BODY()
 
 public:
-	// Sets default values for this character's properties
 	ADetective();
 
 protected:
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	UInputAction* ToggleBookAction;
+	/** The internal gameplay camera - Hidden from defaults to avoid conflicts */
+	UPROPERTY()
+	UCameraComponent* FPSCamera;
+
+	/** The cinematic intro camera */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	UCameraComponent* IntroCamera;
+
+	// --- EDITABLE INTRO SETTINGS ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	float IntroDuration = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	FVector IntroStartOffset = FVector(-400.f, 0.f, 150.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	float InterpSpeed = 1.2f;
 
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> ClueBookWidgetClass;
 
-	/** The internal instance of the book widget */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	UInputAction* ToggleBookAction;
+
 	UPROPERTY()
 	UClueBookWidget* ClueBookInstance;
 
-	/** The function that runs when you press E */
+	bool bIsDoingIntro = true;
+	float IntroTimer = 0.0f;
+
 	void ToggleBook();
 
 public:
-	// Called every frame
 	virtual void Tick(float DeltaTime) override;
-
-	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 };
