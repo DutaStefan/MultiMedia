@@ -14,9 +14,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config")
 	int32 ClueIndex;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config")
-	class UDataTable* ClueDataTable;
-
 	UFUNCTION()
 	void UpdateState(int32 ReceivedIndex, bool bInTurnOn);
 
