@@ -2,11 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "ClueBookWidget.h"
+#include "Blueprint/UserWidget.h"
+#include <InputAction.h>
 #include "Detective.generated.h"
 
+
 class UCameraComponent;
-class UInputAction;
-class UClueBookWidget;
 
 UENUM(BlueprintType)
 enum class ECinematicState : uint8
@@ -30,28 +32,17 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Camera")
 	UCameraComponent* ActiveGameplayCamera;
-	/** The cinematic intro camera */
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	UCameraComponent* IntroCamera;
 
-	// ---CINEMATIC CONTROLS ---
+	// --- CINEMATIC SETTINGS ---
+	// Key: The Actor Tag (e.g. Suspect1), Value: The Name to display (e.g. The Barman)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
-	TArray<FName> TargetNPCTags;
+	TMap<FName, FString> NPCNameMap;
 
-	UPROPERTY()
-	TArray<AActor*> FoundNPCs;
-
-	/** How long the camera stays on each NPC */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
-	float TimePerCharacter = 2.5f;
-
-	/** How fast the camera travels between people */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
-	float TravelSpeed = 2.0f;
-
-	/** If true, NPCs will try to rotate their heads toward the camera during their zoom */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
-	bool bNPCsShouldFaceCamera = true;
+	float TimePerCharacter = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
 	float IntroDuration = 4.0f;
@@ -62,6 +53,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
 	float InterpSpeed = 1.5f;
 
+	// UI Events
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cinematic")
+	void OnShowNPCName(const FString& NewName);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Cinematic")
+	void OnClearNPCName();
+
+	UFUNCTION(BlueprintCallable, Category = "Input")
+	FText GetSkipKeyName();
+
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> ClueBookWidgetClass;
 
@@ -71,17 +72,33 @@ protected:
 	UPROPERTY()
 	UClueBookWidget* ClueBookInstance;
 
-	bool bIsDoingIntro = true;
 	void ToggleBook();
-	void FinishIntro();
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	class UInputAction* SkipAction;
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnShowSkipWidget();
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnHideSkipWidget();
+
+	void SkipCutscene();
 
 private:
 	ECinematicState CurrentState = ECinematicState::DetectiveZoom;
+
+	UPROPERTY()
+	TArray<AActor*> FoundNPCs;
+
 	int32 CurrentTargetIndex = -1;
+	int32 LastTriggeredIndex = -2;
 	float StateTimer = 0.0f;
+	bool bIsPausingOnNPC = false;
+
+	void FinishIntro();
 
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
 };

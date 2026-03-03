@@ -7,6 +7,8 @@
 #include "EnhancedInputSubsystems.h"
 #include <Kismet/KismetMathLibrary.h>
 #include <Kismet/GameplayStatics.h>
+#include "InputMappingContext.h"
+#include <Misc/OutputDeviceNull.h>
 
 ADetective::ADetective()
 {
@@ -21,30 +23,19 @@ void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Find the Gameplay Camera
 	ActiveGameplayCamera = FindComponentByClass<UCameraComponent>();
+	TArray<UCameraComponent*> Cams;
+	GetComponents<UCameraComponent>(Cams);
+	for (UCameraComponent* C : Cams) { if (C != IntroCamera) { ActiveGameplayCamera = C; break; } }
 
-	TArray<UCameraComponent*> Components;
-	GetComponents<UCameraComponent>(Components);
-	for (UCameraComponent* Cam : Components)
-	{
-		if (Cam != IntroCamera)
-		{
-			ActiveGameplayCamera = Cam;
-			break;
-		}
-	}
+	if (ActiveGameplayCamera) ActiveGameplayCamera->SetActive(false);
 
-	if (ActiveGameplayCamera)
-	{
-		ActiveGameplayCamera->SetActive(false);
-	}
-
-	CurrentState = ECinematicState::DetectiveZoom;
-	CurrentTargetIndex = -1;
-	StateTimer = 0.0f;
 	FoundNPCs.Empty();
+	TArray<FName> MapKeys;
+	NPCNameMap.GetKeys(MapKeys);
 
-	for (FName Tag : TargetNPCTags)
+	for (FName Tag : MapKeys)
 	{
 		TArray<AActor*> OutActors;
 		UGameplayStatics::GetAllActorsWithTag(GetWorld(), Tag, OutActors);
@@ -54,30 +45,34 @@ void ADetective::BeginPlay()
 	if (IntroCamera)
 	{
 		IntroCamera->SetRelativeLocation(IntroStartOffset);
-		IntroCamera->bUsePawnControlRotation = false;
+		IntroCamera->bConstrainAspectRatio = true;
+		IntroCamera->AspectRatio = 2.39f;
 	}
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->SetIgnoreMoveInput(true);
-		PC->SetIgnoreLookInput(true); // Stop mouse during intro
+		PC->SetIgnoreLookInput(true);
 	}
+	OnShowSkipWidget();
 }
 
 void ADetective::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
 	if (CurrentState == ECinematicState::Finished) return;
 
 	StateTimer += DeltaTime;
-	FVector TargetLocation = FVector::ZeroVector;
-	FRotator TargetRotation = FRotator::ZeroRotator;
 
-	if (ActiveGameplayCamera)
+	// Default Fallback (Player Position)
+	FVector TargetLocation = (ActiveGameplayCamera) ? ActiveGameplayCamera->GetComponentLocation() : GetActorLocation();
+	FRotator TargetRotation = (ActiveGameplayCamera) ? ActiveGameplayCamera->GetComponentRotation() : GetActorRotation();
+
+	// Smooth Letterbox Exit
+	if (CurrentState == ECinematicState::ReturningHome)
 	{
-		TargetLocation = ActiveGameplayCamera->GetComponentLocation();
-		TargetRotation = ActiveGameplayCamera->GetComponentRotation();
+		IntroCamera->AspectRatio = FMath::FInterpTo(IntroCamera->AspectRatio, 1.77f, DeltaTime, 1.0f);
+		if (IntroCamera->AspectRatio >= 1.76f) IntroCamera->bConstrainAspectRatio = false;
 	}
 
 	switch (CurrentState)
@@ -92,58 +87,87 @@ void ADetective::Tick(float DeltaTime)
 		break;
 
 	case ECinematicState::NPCZoom:
+	{
 		if (FoundNPCs.IsValidIndex(CurrentTargetIndex))
 		{
 			AActor* NPC = FoundNPCs[CurrentTargetIndex];
-			FVector EyesLocation = NPC->GetActorLocation() + FVector(0, 0, 65.f);
+			if (!NPC) { CurrentTargetIndex++; break; }
 
-			if (USkeletalMeshComponent* NPCMesh = NPC->FindComponentByClass<USkeletalMeshComponent>())
+			// 1. Setup Camera Targets
+			FVector Eyes = NPC->GetActorLocation() + FVector(0, 0, 70.f);
+			if (USkeletalMeshComponent* MeshComp = NPC->FindComponentByClass<USkeletalMeshComponent>())
 			{
-				if (NPCMesh->DoesSocketExist(TEXT("head")))
-					EyesLocation = NPCMesh->GetSocketLocation(TEXT("head"));
+				if (MeshComp->DoesSocketExist(TEXT("head"))) Eyes = MeshComp->GetSocketLocation(TEXT("head"));
+			}
+			TargetLocation = Eyes + (NPC->GetActorForwardVector() * 140.f) + (NPC->GetActorRightVector() * 40.f);
+			TargetRotation = UKismetMathLibrary::FindLookAtRotation(TargetLocation, Eyes);
+
+			// 2. Check Distance to see if we have "Arrived"
+			float DistToTarget = FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation);
+			float RotToTarget = FVector::Dist(IntroCamera->GetComponentRotation().Vector(), TargetRotation.Vector());
+
+			if (DistToTarget < 15.0f && !bIsPausingOnNPC)
+			{
+				// --- ARRIVAL MOMENT ---
+				bIsPausingOnNPC = true;
+				StateTimer = 0.5f; // Reset timer to 0 so we get the FULL duration
+
+				FString DisplayName = "Unknown Suspect";
+				for (FName T : NPC->Tags) {
+					if (NPCNameMap.Contains(T)) {
+						DisplayName = NPCNameMap[T];
+						break;
+					}
+				}
+				OnShowNPCName(DisplayName); // Show the UI
 			}
 
-			TargetLocation = EyesLocation + (NPC->GetActorForwardVector() * 150.f);
-			TargetRotation = UKismetMathLibrary::FindLookAtRotation(TargetLocation, EyesLocation);
-
-			if (StateTimer >= TimePerCharacter)
+			// 3. Only count the timer if we are in the Pause phase
+			if (bIsPausingOnNPC)
 			{
-				CurrentTargetIndex++;
-				StateTimer = 0.0f;
-				if (!FoundNPCs.IsValidIndex(CurrentTargetIndex)) CurrentState = ECinematicState::ReturningHome;
+				StateTimer += DeltaTime;
+
+				if (StateTimer >= TimePerCharacter)
+				{
+					OnClearNPCName();   // Clear UI
+					bIsPausingOnNPC = false; // Reset for next traveler
+					CurrentTargetIndex++;
+					StateTimer = 0.0f;
+
+					if (!FoundNPCs.IsValidIndex(CurrentTargetIndex))
+					{
+						CurrentState = ECinematicState::ReturningHome;
+					}
+				}
 			}
 		}
 		break;
+	}
 
 	case ECinematicState::ReturningHome:
-		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 10.0f || StateTimer > 5.0f)
+		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 15.0f || StateTimer > 5.0f)
 		{
 			FinishIntro();
 			return;
 		}
 		break;
+		}
 
-	default:
-		break;
+		// Final Interp
+		float Dist = FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation);
+		float Speed = FMath::Clamp(Dist / 100.0f, 0.7f, 1.2f) * InterpSpeed;
+		IntroCamera->SetWorldLocation(FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, Speed));
+		IntroCamera->SetWorldRotation(FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, InterpSpeed));
 	}
-
-	FVector NewLoc = FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, InterpSpeed);
-	FRotator NewRot = FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, InterpSpeed);
-	IntroCamera->SetWorldLocationAndRotation(NewLoc, NewRot);
-}
 
 void ADetective::FinishIntro()
 {
 	CurrentState = ECinematicState::Finished;
-
 	if (IntroCamera) IntroCamera->SetActive(false);
-
-	if (ActiveGameplayCamera)
-	{
+	if (ActiveGameplayCamera) {
 		ActiveGameplayCamera->SetActive(true);
 		ActiveGameplayCamera->bUsePawnControlRotation = true;
 	}
-
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->SetIgnoreMoveInput(false);
@@ -163,7 +187,33 @@ void ADetective::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 		{
 			EnhancedInputComponent->BindAction(ToggleBookAction, ETriggerEvent::Started, this, &ADetective::ToggleBook);
 		}
+
+		if (SkipAction)
+		{
+			EnhancedInputComponent->BindAction(SkipAction, ETriggerEvent::Started, this, &ADetective::SkipCutscene);
+		}
 	}
+}
+
+FText ADetective::GetSkipKeyName()
+{
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+		{
+			if (SkipAction)
+			{
+				// Get all keys mapped to IA_Skip
+				TArray<FKey> BoundKeys = Subsystem->QueryKeysMappedToAction(SkipAction);
+				if (BoundKeys.Num() > 0)
+				{
+					// Return the first key (e.g., "Space Bar" or "X")
+					return BoundKeys[0].GetDisplayName();
+				}
+			}
+		}
+	}
+	return FText::FromString("None");
 }
 
 void ADetective::ToggleBook()
@@ -210,4 +260,15 @@ void ADetective::ToggleBook()
 			}
 		}
 	}
+}
+
+void ADetective::SkipCutscene()
+{
+	if (CurrentState == ECinematicState::Finished) return;
+
+	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Orange, TEXT("Cutscene Skipped!"));
+
+	OnClearNPCName();
+	OnHideSkipWidget();
+	FinishIntro();
 }
