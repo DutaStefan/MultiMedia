@@ -20,9 +20,13 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Clue Logic")
 	void OnVisualStateChanged(bool bInTurnOn);
 
-protected:
-	UPROPERTY(BlueprintReadWrite, meta = (BindWidget))
+
+	UPROPERTY(meta = (BindWidget))
 	class UTextBlock* ClueText;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Clue Data")
+	class UDataTable* ClueDataTable;
+
 
 	virtual void NativePreConstruct() override;
 };
