@@ -23,7 +23,6 @@ void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Find the Gameplay Camera
 	ActiveGameplayCamera = FindComponentByClass<UCameraComponent>();
 	TArray<UCameraComponent*> Cams;
 	GetComponents<UCameraComponent>(Cams);
@@ -162,6 +161,10 @@ void ADetective::Tick(float DeltaTime)
 
 void ADetective::FinishIntro()
 {
+
+	OnHideSkipWidget();
+	OnClearNPCName();
+
 	CurrentState = ECinematicState::Finished;
 	if (IntroCamera) IntroCamera->SetActive(false);
 	if (ActiveGameplayCamera) {
