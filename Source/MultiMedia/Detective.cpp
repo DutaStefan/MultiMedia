@@ -195,6 +195,11 @@ void ADetective::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 		{
 			EnhancedInputComponent->BindAction(SkipAction, ETriggerEvent::Started, this, &ADetective::SkipCutscene);
 		}
+
+		if (TakePhotoAction) 
+		{
+			EnhancedInputComponent->BindAction(TakePhotoAction, ETriggerEvent::Started, this, &ADetective::TakePhoto);
+		}
 	}
 }
 
@@ -274,4 +279,51 @@ void ADetective::SkipCutscene()
 	OnClearNPCName();
 	OnHideSkipWidget();
 	FinishIntro();
+}
+
+void ADetective::TakePhoto()
+{
+	if (CurrentState != ECinematicState::Finished) return;
+
+	FVector Start = ActiveGameplayCamera->GetComponentLocation();
+	FVector End = Start + (ActiveGameplayCamera->GetForwardVector() * 500.0f); // 5 meters range
+
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		AActor* HitActor = Hit.GetActor();
+		if (HitActor)
+		{
+			// Check if the hit actor has a tag we recognize from our NPCNameMap
+			for (auto& Elem : NPCNameMap)
+			{
+				if (HitActor->ActorHasTag(Elem.Key))
+				{
+					CapturedNPCIDs.AddUnique(Elem.Key);
+
+					LastPhotographedID = Elem.Key;
+					OnPhotoTaken(LastPhotographedID);
+
+					GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green,
+						FString::Printf(TEXT("Photo taken of: %s"), *Elem.Value));
+					return;
+				}
+			}
+		}
+	}
+}
+
+void ADetective::OpenPhoto()
+{
+	if (LastPhotographedID.IsNone())
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow, TEXT("No photo taken yet!"));
+		return;
+	}
+
+	// Call the Blueprint event to show the UI
+	OnOpenPhotoUI(LastPhotographedID);
 }

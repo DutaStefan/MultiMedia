@@ -54,6 +54,17 @@ protected:
 	float InterpSpeed = 1.5f;
 
 	// UI Events
+	UFUNCTION(BlueprintImplementableEvent, Category = "Photo")
+	void OnPhotoTaken(FName NPCID);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Photo")
+	void OnOpenPhotoUI(FName NPCID);
+
+
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Photo")
+	FName LastPhotographedID;
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "Cinematic")
 	void OnShowNPCName(const FString& NewName);
 
@@ -77,6 +88,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	class UInputAction* SkipAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Photo")
+	UInputAction* TakePhotoAction;
+
 	UFUNCTION(BlueprintImplementableEvent)
 	void OnShowSkipWidget();
 
@@ -84,6 +98,8 @@ protected:
 	void OnHideSkipWidget();
 
 	void SkipCutscene();
+	void TakePhoto();
+	void OpenPhoto();
 
 private:
 	ECinematicState CurrentState = ECinematicState::DetectiveZoom;
@@ -101,4 +117,6 @@ private:
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Photo")
+	TArray<FName> CapturedNPCIDs;
 };
