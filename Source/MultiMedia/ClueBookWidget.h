@@ -37,6 +37,7 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "UI")
 	TSubclassOf<UUserWidget> PhotoEntryClass;
 
-	UFUNCTION(BlueprintImplementableEvent)
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void OnEntryCreated(UUserWidget* NewEntry);
+
 };

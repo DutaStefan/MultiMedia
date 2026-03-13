@@ -55,14 +55,6 @@ void UClueBookWidget::SwitchToPhotos()
 
 	PhotoGrid->ClearChildren();
 
-	if (NewEntry)
-	{
-		PhotoGrid->AddChildToWrapBox(NewEntry);
-
-		// This triggers the event in your WBP_ClueBook Blueprint
-		OnEntryCreated(NewEntry);
-	}
-
 	// Get the Detective character to see what they've photographed
 	if (ADetective* Det = Cast<ADetective>(GetOwningPlayerPawn()))
 	{
@@ -82,7 +74,10 @@ void UClueBookWidget::SwitchToPhotos()
 				}
 
 				PhotoGrid->AddChildToWrapBox(NewEntry);
+				// This triggers the event in your WBP_ClueBook Blueprint
+				OnEntryCreated(NewEntry);
 			}
+
 		}
 	}
 }
