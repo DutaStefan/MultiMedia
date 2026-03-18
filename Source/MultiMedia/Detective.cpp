@@ -16,20 +16,44 @@ ADetective::ADetective()
 
 	IntroCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("IntroCamera"));
 	IntroCamera->SetupAttachment(RootComponent);
-	IntroCamera->SetAutoActivate(true);
+	IntroCamera->SetAutoActivate(false);
+
+	// Ensure the camera can never drift from player mouse movements
+	IntroCamera->bUsePawnControlRotation = false;
 }
 
 void ADetective::BeginPlay()
 {
 	Super::BeginPlay();
 
-	ActiveGameplayCamera = FindComponentByClass<UCameraComponent>();
+	// 1. Identify the cameras
+	ActiveGameplayCamera = nullptr;
 	TArray<UCameraComponent*> Cams;
 	GetComponents<UCameraComponent>(Cams);
-	for (UCameraComponent* C : Cams) { if (C != IntroCamera) { ActiveGameplayCamera = C; break; } }
+	for (UCameraComponent* C : Cams)
+	{
+		if (C != IntroCamera)
+		{
+			ActiveGameplayCamera = C;
+			break;
+		}
+	}
 
-	if (ActiveGameplayCamera) ActiveGameplayCamera->SetActive(false);
+	// 2. Force the correct camera states immediately on spawn
+	if (IntroCamera)
+	{
+		IntroCamera->SetActive(false);
+		IntroCamera->bUsePawnControlRotation = false;
+		IntroCamera->bConstrainAspectRatio = true;
+		IntroCamera->AspectRatio = 2.39f;
+	}
 
+	if (ActiveGameplayCamera)
+	{
+		ActiveGameplayCamera->SetActive(true);
+	}
+
+	// 3. Setup the NPC Targets for later
 	FoundNPCs.Empty();
 	TArray<FName> MapKeys;
 	NPCNameMap.GetKeys(MapKeys);
@@ -40,26 +64,71 @@ void ADetective::BeginPlay()
 		UGameplayStatics::GetAllActorsWithTag(GetWorld(), Tag, OutActors);
 		if (OutActors.Num() > 0) FoundNPCs.Add(OutActors[0]);
 	}
+}
+
+void ADetective::StartIntro()
+{
+	bHasIntroStarted = true;
+
+	// Calculate the exact world space coordinates
+	FVector StartLoc = GetActorTransform().TransformPosition(IntroStartOffset);
+	FRotator StartRot = GetActorTransform().TransformRotation(IntroStartRotation.Quaternion()).Rotator();
 
 	if (IntroCamera)
 	{
-		IntroCamera->SetRelativeLocation(IntroStartOffset);
-		IntroCamera->bConstrainAspectRatio = true;
-		IntroCamera->AspectRatio = 2.39f;
+		// Detach and enforce absolute world coordinates so the FP character can't drag it
+		IntroCamera->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		IntroCamera->SetUsingAbsoluteLocation(true);
+		IntroCamera->SetUsingAbsoluteRotation(true);
+		IntroCamera->SetWorldLocationAndRotation(StartLoc, StartRot);
+		IntroCamera->SetActive(true);
 	}
 
+	// Swap cameras over to the cinematic view
+	if (ActiveGameplayCamera) ActiveGameplayCamera->SetActive(false);
+
+	// Lock player controls
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->SetIgnoreMoveInput(true);
 		PC->SetIgnoreLookInput(true);
 	}
+
 	OnShowSkipWidget();
+}
+
+void ADetective::PauseCutscene()
+{
+	bIsCutscenePaused = true;
+}
+
+void ADetective::UnpauseCutscene()
+{
+	bIsCutscenePaused = false;
 }
 
 void ADetective::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// Wait for the instance editable boolean to become true via Blueprints
+	if (!bHasIntroStarted)
+	{
+		if (bShouldStartIntro)
+		{
+			StartIntro();
+		}
+		else
+		{
+			// Exit tick early; do not process cinematic math until triggered
+			return;
+		}
+	}
+
 	if (CurrentState == ECinematicState::Finished) return;
+
+	// --- FREEZE EVERYTHING IF PAUSED ---
+	if (bIsCutscenePaused) return;
 
 	StateTimer += DeltaTime;
 
@@ -77,13 +146,19 @@ void ADetective::Tick(float DeltaTime)
 	switch (CurrentState)
 	{
 	case ECinematicState::DetectiveZoom:
-		if (StateTimer >= IntroDuration)
+	{
+		// TargetLocation defaults to the Detective's head from the fallback above, so it will physically zoom in.
+		// However, we OVERRIDE the TargetRotation to force the camera to stare at the Detective, preventing it from spinning away!
+		TargetRotation = UKismetMathLibrary::FindLookAtRotation(IntroCamera->GetComponentLocation(), TargetLocation);
+
+		if (StateTimer >= DetectiveHoldDuration)
 		{
 			CurrentTargetIndex = 0;
 			StateTimer = 0.0f;
 			CurrentState = (FoundNPCs.Num() > 0) ? ECinematicState::NPCZoom : ECinematicState::ReturningHome;
 		}
 		break;
+	}
 
 	case ECinematicState::NPCZoom:
 	{
@@ -144,38 +219,55 @@ void ADetective::Tick(float DeltaTime)
 	}
 
 	case ECinematicState::ReturningHome:
+		// Target the exact world position of the First Person Camera so it lines up perfectly
+		if (ActiveGameplayCamera)
+		{
+			TargetLocation = ActiveGameplayCamera->GetComponentLocation();
+			TargetRotation = ActiveGameplayCamera->GetComponentRotation();
+		}
+
 		if (FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation) < 15.0f || StateTimer > 5.0f)
 		{
 			FinishIntro();
 			return;
 		}
 		break;
-		}
-
-		// Final Interp
-		float Dist = FVector::Dist(IntroCamera->GetComponentLocation(), TargetLocation);
-		float Speed = FMath::Clamp(Dist / 100.0f, 0.7f, 1.2f) * InterpSpeed;
-		IntroCamera->SetWorldLocation(FMath::VInterpTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, Speed));
-		IntroCamera->SetWorldRotation(FMath::RInterpTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, InterpSpeed));
 	}
+
+	// Final Interp - Swapped to Constant Speed!
+	// We multiply InterpSpeed to turn it into "Units Per Second" and "Degrees Per Second"
+	float LinearLocSpeed = InterpSpeed * 150.0f;
+	float LinearRotSpeed = InterpSpeed * 60.0f;
+
+	IntroCamera->SetWorldLocation(FMath::VInterpConstantTo(IntroCamera->GetComponentLocation(), TargetLocation, DeltaTime, LinearLocSpeed));
+	IntroCamera->SetWorldRotation(FMath::RInterpConstantTo(IntroCamera->GetComponentRotation(), TargetRotation, DeltaTime, LinearRotSpeed));
+}
 
 void ADetective::FinishIntro()
 {
-
 	OnHideSkipWidget();
 	OnClearNPCName();
 
 	CurrentState = ECinematicState::Finished;
-	if (IntroCamera) IntroCamera->SetActive(false);
-	if (ActiveGameplayCamera) {
-		ActiveGameplayCamera->SetActive(true);
-		ActiveGameplayCamera->bUsePawnControlRotation = true;
+
+	if (IntroCamera)
+	{
+		IntroCamera->SetActive(false);
+		// Clean up our absolute locks and re-attach the camera to the character
+		IntroCamera->SetUsingAbsoluteLocation(false);
+		IntroCamera->SetUsingAbsoluteRotation(false);
+		IntroCamera->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
 	}
+
+	if (ActiveGameplayCamera)
+	{
+		ActiveGameplayCamera->SetActive(true);
+	}
+
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		PC->SetIgnoreMoveInput(false);
 		PC->SetIgnoreLookInput(false);
-		PC->SetControlRotation(ActiveGameplayCamera->GetComponentRotation());
 	}
 }
 
@@ -196,7 +288,7 @@ void ADetective::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent
 			EnhancedInputComponent->BindAction(SkipAction, ETriggerEvent::Started, this, &ADetective::SkipCutscene);
 		}
 
-		if (TakePhotoAction) 
+		if (TakePhotoAction)
 		{
 			EnhancedInputComponent->BindAction(TakePhotoAction, ETriggerEvent::Started, this, &ADetective::TakePhoto);
 		}
@@ -262,8 +354,6 @@ void ADetective::ToggleBook()
 			if (APlayerController* PC = Cast<APlayerController>(GetController()))
 			{
 				PC->bShowMouseCursor = true;
-
-
 				PC->SetInputMode(FInputModeGameAndUI());
 			}
 		}

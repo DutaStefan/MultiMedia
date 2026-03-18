@@ -27,8 +27,30 @@ class MULTIMEDIA_API ADetective : public ACharacter
 public:
 	ADetective();
 
+	// The instance editable boolean you can toggle in Blueprints to start the cutscene
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
+	bool bShouldStartIntro = false;
+
+	// --- NEW PAUSE CONTROLS ---
+	UFUNCTION(BlueprintCallable, Category = "Cinematic")
+	void PauseCutscene();
+
+	UFUNCTION(BlueprintCallable, Category = "Cinematic")
+	void UnpauseCutscene();
+
 protected:
 	virtual void BeginPlay() override;
+
+	// Internal tracker so we only start the intro once
+	bool bHasIntroStarted = false;
+
+	// Tracks if the cinematic is currently frozen
+	UPROPERTY(BlueprintReadOnly, Category = "Cinematic")
+	bool bIsCutscenePaused = false;
+
+	// The function that actually kicks off the cutscene
+	UFUNCTION(BlueprintCallable, Category = "Cinematic")
+	void StartIntro();
 
 	UPROPERTY(BlueprintReadOnly, Category = "Camera")
 	UCameraComponent* ActiveGameplayCamera;
@@ -44,12 +66,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cinematic")
 	float TimePerCharacter = 3.0f;
 
+	// How long the camera stares at the Detective before flying to the first NPC
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
-	float IntroDuration = 4.0f;
+	float DetectiveHoldDuration = 4.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
-	FVector IntroStartOffset = FVector(-400.f, 0.f, 150.f);
+	FVector IntroStartOffset = FVector(400.f, 0.f, 150.f);
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
+	FRotator IntroStartRotation = FRotator(0.f, 180.f, 0.f);
+
+	// Acts as a multiplier for the linear units-per-second speed
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera Intro")
 	float InterpSpeed = 1.5f;
 
@@ -59,8 +86,6 @@ protected:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Photo")
 	void OnOpenPhotoUI(FName NPCID);
-
-
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Photo")
 	FName LastPhotographedID;
@@ -117,6 +142,7 @@ private:
 public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Photo")
 	TArray<FName> CapturedNPCIDs;
 };
